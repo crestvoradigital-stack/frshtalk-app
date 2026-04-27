@@ -27,9 +27,28 @@ const httpServer = createServer(app);
 // ============================================
 // SOCKET.IO SETUP (Real-time features)
 // ============================================
+const defaultOrigins = ['http://localhost:5173', 'https://frshtalk-app.vercel.app'];
+const allowedOrigins = process.env.CORS_ORIGINS?.split(',').map((origin) => origin.trim()).filter(Boolean) || defaultOrigins;
+
+const isAllowedOrigin = (origin: string | undefined) => {
+  if (!origin) return true;
+  const parsedOrigin = origin.toLowerCase();
+  return (
+    allowedOrigins.includes(parsedOrigin) ||
+    parsedOrigin.endsWith('.vercel.app') ||
+    parsedOrigin.endsWith('.railway.app')
+  );
+};
+
 const io = new SocketServer(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   },
   transports: ['websocket', 'polling'],
@@ -48,7 +67,13 @@ app.use(helmet());
 // CORS configuration
 app.use(
   cors({
-    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   })
 );
