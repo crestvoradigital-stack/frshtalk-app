@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+const DEFAULT_API_BASE_URL = 'https://pretty-amazement-production-351b.up.railway.app/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 function getApiUrl(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
