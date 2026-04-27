@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { ArrowLeft, Phone } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { validatePhoneNumber, formatPhoneNumber } from '../../lib/validation';
+import { apiPost } from '../../lib/api';
 import { storage } from '../../lib/storage';
 import { LoadingSpinner } from './shared/LoadingSpinner';
 import { ErrorMessage } from './shared/ErrorMessage';
@@ -43,8 +44,13 @@ export function DosttLogin({ onBack, onVerified }: DosttLoginProps) {
     setError(null);
 
     try {
-      // TODO: Call actual API to send OTP
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Add country code and send to API
+      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+      
+      await apiPost('/auth/send-otp', {
+        phoneNumber: formattedPhone,
+      });
+      
       setShowOTP(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send OTP');
@@ -116,22 +122,22 @@ export function DosttLogin({ onBack, onVerified }: DosttLoginProps) {
               Phone Number
             </label>
             <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-white/70">
-                <Phone className="w-5 h-5" aria-hidden="true" />
-                <span className="text-base">+91</span>
-              </div>
-              <input
-                id="phoneNumber"
-                type="tel"
-                value={phoneNumber}
-                onChange={handlePhoneChange}
-                placeholder="Enter phone number"
-                className="w-full bg-white/10 backdrop-blur-sm text-white placeholder-white/40 pl-20 pr-4 py-4 rounded-2xl border-2 border-white/20 focus:border-white/40 focus:outline-none text-base transition-colors"
-                autoFocus
-                aria-invalid={error ? 'true' : 'false'}
-                aria-describedby={error ? 'phone-error' : undefined}
-                disabled={isSendingOTP}
-              />
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-white/70">
+              <Phone className="w-5 h-5" aria-hidden="true" />
+              <span className="text-base">+91</span>
+            </div>
+            <input
+              id="phoneNumber"
+              type="tel"
+              value={phoneNumber}
+              onChange={handlePhoneChange}
+              placeholder="9393589369"
+              className="w-full bg-white/10 backdrop-blur-sm text-white placeholder-white/40 pl-20 pr-4 py-4 rounded-2xl border-2 border-white/20 focus:border-white/40 focus:outline-none text-base transition-colors"
+              autoFocus
+              aria-invalid={error ? 'true' : 'false'}
+              aria-describedby={error ? 'phone-error' : undefined}
+              disabled={isSendingOTP}
+            />
             </div>
             {phoneNumber && (
               <p className="text-white/60 text-sm mt-2" aria-live="polite">

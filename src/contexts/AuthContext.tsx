@@ -3,6 +3,7 @@ import { User, AuthState } from '../types';
 import { storage } from '../lib/storage';
 import { APP_CONFIG } from '../constants';
 import { generateId } from '../lib/utils';
+import { apiPost } from '../lib/api';
 
 interface AuthContextType extends AuthState {
   login: (phoneNumber: string, otp: string) => Promise<void>;
@@ -52,27 +53,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Add country code if not present
+      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+      
+      // Call backend API
+      const response = await apiPost<{ user: User; token: string }>('/auth/verify-otp', {
+        phoneNumber: formattedPhone,
+        otp,
+      });
 
-      // Mock user creation
-      const user: User = {
-        id: generateId(),
-        username: `user_${phoneNumber.slice(-4)}`,
-        phoneNumber,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${phoneNumber}`,
-        role: 'customer',
-        coins: storage.getHasClaimedSignupBonus() ? 0 : APP_CONFIG.signupBonusCoins,
-        createdAt: new Date(),
-        isVerified: true,
-      };
-
-      const token = generateId();
+      const { user, token } = response;
 
       // Save to storage
       storage.setAuthToken(token);
       storage.setUser(user);
-      storage.setCoins(user.coins);
+      storage.setCoins(user.coins || 0);
 
       setAuthState({
         isAuthenticated: true,

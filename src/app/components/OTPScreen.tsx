@@ -12,6 +12,9 @@ export function OTPScreen({ phoneNumber = '9393589369', onVerify, onBack, onRese
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [timer, setTimer] = useState(58);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  
+  // Format phone number with country code if not already present
+  const displayPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -61,7 +64,7 @@ export function OTPScreen({ phoneNumber = '9393589369', onVerify, onBack, onRese
 
       <h1 className="text-white text-2xl sm:text-3xl mb-2">Verify OTP</h1>
       <div className="flex items-center gap-2 mb-8 sm:mb-12">
-        <p className="text-white/70 text-sm">OTP sent to {phoneNumber}</p>
+        <p className="text-white/70 text-sm">OTP sent to {displayPhone}</p>
         {onBack && <button onClick={onBack}><Edit2 className="w-4 h-4 text-white/70" /></button>}
       </div>
 
