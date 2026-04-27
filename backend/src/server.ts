@@ -40,10 +40,25 @@ const isAllowedOrigin = (origin: string | undefined) => {
   );
 };
 
+const logCorsDecision = (origin: string | undefined, allowed: boolean) => {
+  if (!origin) {
+    console.log('CORS: no origin header, allowing request');
+    return;
+  }
+
+  if (!allowed) {
+    console.warn(`CORS DENIED: origin=${origin}, allowedOrigins=${allowedOrigins.join(', ')}`);
+  } else {
+    console.log(`CORS allowed: origin=${origin}`);
+  }
+};
+
 const io = new SocketServer(httpServer, {
   cors: {
     origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
+      const allowed = isAllowedOrigin(origin);
+      logCorsDecision(origin, allowed);
+      if (allowed) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -68,7 +83,9 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
+      const allowed = isAllowedOrigin(origin);
+      logCorsDecision(origin, allowed);
+      if (allowed) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
