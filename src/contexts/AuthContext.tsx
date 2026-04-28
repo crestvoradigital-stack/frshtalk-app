@@ -53,12 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      // Add country code if not present
-      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
-      
       // Call backend API
       const response = await apiPost<{ user: User; token: string }>('/auth/verify-otp', {
-        phoneNumber: formattedPhone,
+        phoneNumber,
         otp,
       });
 

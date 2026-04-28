@@ -1,5 +1,15 @@
 import { Home, Phone, Users, Clock, PhoneCall, Video, MoreVertical, Heart, Coins, User } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getCallHistory } from '../../services/calling';
+
+interface RecentsScreenProps {
+  activeTab: 'home' | 'recents' | 'profile';
+  onTabChange: (tab: 'home' | 'recents' | 'profile') => void;
+  onOpenWallet: () => void;
+  coins?: number;
+  onVoiceCall?: (user: { id: number; name: string; avatar: string }) => void;
+  onVideoCall?: (user: { id: number; name: string; avatar: string }) => void;
+}
 
 interface RecentsScreenProps {
   activeTab: 'home' | 'recents' | 'profile';
@@ -72,6 +82,29 @@ export function RecentsScreen({
 }: RecentsScreenProps) {
   const [selectedView, setSelectedView] = useState<'recents' | 'favourites'>('recents');
   const [favouriteAlerts, setFavouriteAlerts] = useState(false);
+  const [recentCalls, setRecentCalls] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadCallHistory();
+  }, []);
+
+  const loadCallHistory = async () => {
+    try {
+      setLoading(true);
+      const result = await getCallHistory(20);
+      if (result.success && result.calls) {
+        setRecentCalls(result.calls);
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError('Failed to load call history');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

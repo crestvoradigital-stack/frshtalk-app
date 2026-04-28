@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Video, Send, Smile, Mic, Phone, PhoneOff, VideoOff, MicOff, Maximize2, MessageSquare } from 'lucide-react';
+import { generateVoiceToken, endCall } from '../../services/calling';
 
 interface ConnectingScreenProps {
   username: string;
   avatar: string;
+  callId?: string;
   isVideoCall?: boolean;
   onCancel: () => void;
+  onCallEnd?: () => void;
 }
 
 interface Message {
@@ -34,7 +37,14 @@ const safetyMessages = [
   { emoji: '❤️', text: 'Be kind and respectful' },
 ];
 
-export function ConnectingScreen({ username, avatar, isVideoCall = false, onCancel }: ConnectingScreenProps) {
+export function ConnectingScreen({
+  username,
+  avatar,
+  callId,
+  isVideoCall = false,
+  onCancel,
+  onCallEnd
+}: ConnectingScreenProps) {
   const [currentMessage, setCurrentMessage] = useState(0);
   const [dots, setDots] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -44,23 +54,89 @@ export function ConnectingScreen({ username, avatar, isVideoCall = false, onCanc
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [myVideoEnabled, setMyVideoEnabled] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [isCallActive, setIsCallActive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const callStartTime = useRef<Date | null>(null);
+  const durationInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Simulate connection after 3 seconds
+  // Handle real call connection
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsConnected(true);
-      // Send welcome message from listener
-      setMessages([
-        {
-          id: 1,
-          text: "Hi! I'm here to listen. How are you feeling today?",
-          sender: 'them',
-          timestamp: new Date(),
-        },
-      ]);
-    }, 3000);
-    return () => clearTimeout(timer);
+    if (callId) {
+      // Generate voice token and connect
+      const connectCall = async () => {
+        try {
+          const tokenResult = await generateVoiceToken(`call-${callId}`);
+          if (tokenResult.success) {
+            // Here you would initialize Twilio Device with the token
+            console.log('Voice token generated:', tokenResult.token);
+
+            // Simulate connection after token generation
+            setTimeout(() => {
+              setIsConnected(true);
+              setIsCallActive(true);
+              callStartTime.current = new Date();
+
+              // Start duration timer
+              durationInterval.current = setInterval(() => {
+                if (callStartTime.current) {
+                  const elapsed = Math.floor((Date.now() - callStartTime.current.getTime()) / 1000);
+                  setCallDuration(elapsed);
+                }
+              }, 1000);
+
+              // Send welcome message from listener
+              setMessages([
+                {
+                  id: 1,
+                  text: "Hi! I'm here to listen. How are you feeling today?",
+                  sender: 'them',
+                  timestamp: new Date(),
+                },
+              ]);
+            }, 2000);
+          }
+        } catch (error) {
+          console.error('Failed to connect call:', error);
+          onCancel();
+        }
+      };
+
+      connectCall();
+    } else {
+      // Fallback to simulation for demo purposes
+      const timer = setTimeout(() => {
+        setIsConnected(true);
+        setIsCallActive(true);
+        callStartTime.current = new Date();
+
+        durationInterval.current = setInterval(() => {
+          if (callStartTime.current) {
+            const elapsed = Math.floor((Date.now() - callStartTime.current.getTime()) / 1000);
+            setCallDuration(elapsed);
+          }
+        }, 1000);
+
+        setMessages([
+          {
+            id: 1,
+            text: "Hi! I'm here to listen. How are you feeling today?",
+            sender: 'them',
+            timestamp: new Date(),
+          },
+        ]);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [callId, onCancel]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (durationInterval.current) {
+        clearInterval(durationInterval.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -126,6 +202,32 @@ export function ConnectingScreen({ username, avatar, isVideoCall = false, onCanc
     }
   };
 
+  const handleEndCall = async () => {
+    try {
+      if (callId) {
+        await endCall(callId);
+      }
+
+      // Clear timer
+      if (durationInterval.current) {
+        clearInterval(durationInterval.current);
+      }
+
+      setIsCallActive(false);
+      onCallEnd?.();
+    } catch (error) {
+      console.error('Failed to end call:', error);
+      // Still close the call UI even if API call fails
+      onCallEnd?.();
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const row1 = topicTags.slice(0, 4);
   const row2 = topicTags.slice(4, 7);
   const row3 = topicTags.slice(7, 10);
@@ -147,7 +249,9 @@ export function ConnectingScreen({ username, avatar, isVideoCall = false, onCanc
             </div>
             <div>
               <h3 className="text-white font-semibold text-sm">{username}</h3>
-              <p className="text-emerald-400 text-xs font-medium">Connected</p>
+              <p className="text-emerald-400 text-xs font-medium">
+                {isCallActive ? formatDuration(callDuration) : 'Connected'}
+              </p>
             </div>
           </div>
 
@@ -163,7 +267,7 @@ export function ConnectingScreen({ username, avatar, isVideoCall = false, onCanc
               <MessageSquare className="w-5 h-5 text-white" />
             </button>
             <button
-              onClick={onCancel}
+              onClick={handleEndCall}
               className="p-2 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 transition-all shadow-lg shadow-red-500/30"
             >
               <PhoneOff className="w-5 h-5 text-white" />

@@ -135,21 +135,31 @@ export async function verifyOTP(
 }
 
 /**
- * Send SMS (for notifications, not OTP)
+ * Initiate a voice call using Twilio
  */
-export async function sendSMS(
+export async function initiateVoiceCall(
+  from: string,
   to: string,
-  message: string
+  callType: 'voice' | 'video' = 'voice'
 ): Promise<{
   success: boolean;
   message: string;
+  callSid?: string;
+  callDetails?: any;
 }> {
   try {
     if (process.env.NODE_ENV === 'development' && !twilioClient) {
-      console.log(`[DEV MODE] SMS to ${to}: ${message}`);
+      console.log(`[DEV MODE] Voice call from ${from} to ${to} (${callType})`);
       return {
         success: true,
-        message: 'SMS sent (development mode)',
+        message: 'Voice call initiated (development mode)',
+        callSid: `dev-call-${Date.now()}`,
+        callDetails: {
+          from,
+          to,
+          status: 'initiated',
+          type: callType,
+        },
       };
     }
 
@@ -157,28 +167,126 @@ export async function sendSMS(
       throw new Error('Twilio is not configured');
     }
 
-    const result = await twilioClient.messages.create({
-      body: message,
-      from: process.env.TWILIO_PHONE_NUMBER,
+    // For voice calls, we'll use Twilio's REST API to create a call
+    const call = await twilioClient.calls.create({
+      url: `${process.env.BASE_URL || 'https://your-app-url.com'}/api/calls/twiml/${callType}`,
+      from: process.env.TWILIO_PHONE_NUMBER || from,
       to: to,
+      statusCallback: `${process.env.BASE_URL || 'https://your-app-url.com'}/api/calls/status`,
+      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+      statusCallbackMethod: 'POST',
     });
 
-    if (result.sid) {
+    return {
+      success: true,
+      message: 'Voice call initiated successfully',
+      callSid: call.sid,
+      callDetails: {
+        from: call.from,
+        to: call.to,
+        status: call.status,
+        direction: call.direction,
+        startTime: call.startTime,
+      },
+    };
+  } catch (error: any) {
+    console.error('Twilio initiate voice call error:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to initiate voice call',
+    };
+  }
+}
+
+/**
+ * Generate a Twilio client token for WebRTC voice/video calls
+ */
+export async function generateVoiceToken(
+  identity: string,
+  roomName?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  token?: string;
+}> {
+  try {
+    if (process.env.NODE_ENV === 'development' && !twilioClient) {
+      console.log(`[DEV MODE] Voice token generated for ${identity}`);
       return {
         success: true,
-        message: 'SMS sent successfully',
+        message: 'Voice token generated (development mode)',
+        token: `dev-token-${Date.now()}`,
       };
     }
 
+    if (!twilioClient) {
+      throw new Error('Twilio is not configured');
+    }
+
+    // Generate Access Token for Twilio Client SDK
+    const AccessToken = twilio.jwt.AccessToken;
+    const VoiceGrant = AccessToken.VoiceGrant;
+
+    const token = new AccessToken(
+      accountSid!,
+      process.env.TWILIO_API_KEY_SID!,
+      process.env.TWILIO_API_KEY_SECRET!
+    );
+
+    token.identity = identity;
+
+    // Add voice grant
+    const voiceGrant = new VoiceGrant({
+      outgoingApplicationSid: process.env.TWILIO_TWIML_APP_SID,
+      incomingAllow: true,
+    });
+    token.addGrant(voiceGrant);
+
     return {
-      success: false,
-      message: 'Failed to send SMS',
+      success: true,
+      message: 'Voice token generated successfully',
+      token: token.toJwt(),
     };
   } catch (error: any) {
-    console.error('Twilio send SMS error:', error);
+    console.error('Twilio generate voice token error:', error);
     return {
       success: false,
-      message: error.message || 'Failed to send SMS',
+      message: error.message || 'Failed to generate voice token',
+    };
+  }
+}
+
+/**
+ * End a voice call
+ */
+export async function endVoiceCall(callSid: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  try {
+    if (process.env.NODE_ENV === 'development' && !twilioClient) {
+      console.log(`[DEV MODE] Voice call ${callSid} ended`);
+      return {
+        success: true,
+        message: 'Voice call ended (development mode)',
+      };
+    }
+
+    if (!twilioClient) {
+      throw new Error('Twilio is not configured');
+    }
+
+    await twilioClient.calls(callSid).update({ status: 'completed' });
+
+    return {
+      success: true,
+      message: 'Voice call ended successfully',
+    };
+  } catch (error: any) {
+    console.error('Twilio end voice call error:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to end voice call',
     };
   }
 }
@@ -187,4 +295,7 @@ export default {
   sendOTP,
   verifyOTP,
   sendSMS,
+  initiateVoiceCall,
+  generateVoiceToken,
+  endVoiceCall,
 };

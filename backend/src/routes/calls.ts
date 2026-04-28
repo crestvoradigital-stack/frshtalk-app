@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { db } from '../config/supabase.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { initiateVoiceCall, generateVoiceToken, endVoiceCall } from '../services/twilio.js';
+
+const router = Router();
 
 const router = Router();
 
@@ -327,6 +330,224 @@ router.post('/:callId/rate', authenticateToken, async (req, res) => {
     res.status(500).json({
       error: 'Server error',
       message: error.message || 'Failed to rate call',
+    });
+  }
+});
+
+// ============================================
+// GENERATE VOICE TOKEN
+// POST /api/calls/token
+// ============================================
+router.post('/token', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { roomName } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    // Get user details
+    const { data: user } = await db.supabaseAdmin
+      .from('users')
+      .select('username')
+      .eq('id', userId)
+      .single();
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'Not found',
+        message: 'User not found',
+      });
+    }
+
+    // Generate Twilio voice token
+    const tokenResult = await generateVoiceToken(user.username, roomName);
+
+    if (!tokenResult.success) {
+      return res.status(500).json({
+        error: 'Token generation failed',
+        message: tokenResult.message,
+      });
+    }
+
+    res.json({
+      success: true,
+      token: tokenResult.token,
+      identity: user.username,
+    });
+  } catch (error: any) {
+    console.error('Generate token error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to generate token',
+    });
+  }
+});
+
+// ============================================
+// TwiML RESPONSE FOR VOICE CALLS
+// GET /api/calls/twiml/:callType
+// ============================================
+router.get('/twiml/:callType', (req, res) => {
+  const { callType } = req.params;
+
+  // Set content type to XML
+  res.set('Content-Type', 'text/xml');
+
+  // Basic TwiML response for voice calls
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Hello! You are now connected for a ${callType} call.</Say>
+  <Dial>
+    <Client>listener</Client>
+  </Dial>
+</Response>`;
+
+  res.send(twiml);
+});
+
+// ============================================
+// VOICE CALL STATUS CALLBACK
+// POST /api/calls/status
+// ============================================
+router.post('/status', async (req, res) => {
+  try {
+    const {
+      CallSid,
+      CallStatus,
+      From,
+      To,
+      CallDuration,
+      Timestamp,
+    } = req.body;
+
+    console.log('Twilio status callback:', {
+      callSid: CallSid,
+      status: CallStatus,
+      from: From,
+      to: To,
+      duration: CallDuration,
+      timestamp: Timestamp,
+    });
+
+    // Update call status in database if we have the call
+    if (CallSid) {
+      const { data: call } = await db.supabaseAdmin
+        .from('calls')
+        .select('*')
+        .eq('twilio_call_sid', CallSid)
+        .single();
+
+      if (call) {
+        await db.updateCall(call.id, {
+          status: CallStatus,
+          ...(CallDuration && { duration_seconds: parseInt(CallDuration) }),
+        });
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (error: any) {
+    console.error('Status callback error:', error);
+    res.sendStatus(500);
+  }
+});
+
+// ============================================
+// INITIATE VOICE CALL (Direct API)
+// POST /api/calls/voice/initiate
+// ============================================
+router.post('/voice/initiate', authenticateToken, async (req, res) => {
+  try {
+    const { to, callType = 'voice' } = req.body;
+    const from = req.user?.userId;
+
+    if (!from) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    // Validate phone number
+    if (!to || !/^\+?[1-9]\d{9,14}$/.test(to)) {
+      return res.status(400).json({
+        error: 'Invalid phone number',
+        message: 'Please provide a valid phone number',
+      });
+    }
+
+    // Initiate voice call
+    const callResult = await initiateVoiceCall(`+${from}`, to, callType);
+
+    if (!callResult.success) {
+      return res.status(500).json({
+        error: 'Call initiation failed',
+        message: callResult.message,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Voice call initiated',
+      callSid: callResult.callSid,
+      callDetails: callResult.callDetails,
+    });
+  } catch (error: any) {
+    console.error('Initiate voice call error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to initiate voice call',
+    });
+  }
+});
+
+// ============================================
+// END VOICE CALL
+// POST /api/calls/voice/end
+// ============================================
+router.post('/voice/end', authenticateToken, async (req, res) => {
+  try {
+    const { callSid } = req.body;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    if (!callSid) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        message: 'Call SID is required',
+      });
+    }
+
+    // End voice call
+    const endResult = await endVoiceCall(callSid);
+
+    if (!endResult.success) {
+      return res.status(500).json({
+        error: 'Call end failed',
+        message: endResult.message,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Voice call ended',
+    });
+  } catch (error: any) {
+    console.error('End voice call error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to end voice call',
     });
   }
 });

@@ -14,6 +14,8 @@ import callRoutes from './routes/calls.js';
 import walletRoutes from './routes/wallet.js';
 import messageRoutes from './routes/messages.js';
 import paymentRoutes from './routes/payments.js';
+import feedbackRoutes from './routes/feedback.js';
+import supportRoutes from './routes/support.js';
 
 // Import WebSocket handlers
 import { setupWebSocketHandlers } from './websocket/index.js';
@@ -153,6 +155,8 @@ app.use('/api/calls', callRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/support', supportRoutes);
 
 // ============================================
 // ERROR HANDLING

@@ -32,6 +32,18 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return parseResponse<T>(response);
 }
 
+export async function apiGet<T>(path: string, token?: string): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return apiFetch<T>(path, {
+    method: 'GET',
+    headers,
+  });
+}
+
 export async function apiPost<T>(path: string, body?: unknown, token?: string): Promise<T> {
   const headers: Record<string, string> = {};
   if (token) {
