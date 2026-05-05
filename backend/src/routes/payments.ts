@@ -6,20 +6,10 @@ import { authenticateToken } from '../middleware/auth.js';
 
 const router = Router();
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || '',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
-});
-
-// ============================================
-// CREATE PAYMENT ORDER
-// POST /api/payments/create-order
-// ============================================
-router.post('/create-order', authenticateToken, async (req, res) => {
+async function createOrderHandler(req: any, res: any) {
   try {
     const { packageId, coins, amount } = req.body;
-    const userId = req.user?.userId;
+    const userId = (req as any).user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -28,7 +18,6 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    // Validate input
     if (!coins || !amount) {
       return res.status(400).json({
         error: 'Invalid input',
@@ -36,9 +25,8 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       });
     }
 
-    // Create Razorpay order
     const options = {
-      amount: amount * 100, // Convert to paise (smallest currency unit)
+      amount: amount * 100,
       currency: 'INR',
       receipt: `order_${userId}_${Date.now()}`,
       notes: {
@@ -50,7 +38,6 @@ router.post('/create-order', authenticateToken, async (req, res) => {
 
     const order = await razorpay.orders.create(options);
 
-    // Create pending transaction in database
     await db.createTransaction({
       user_id: userId,
       transaction_type: 'purchase',
@@ -83,7 +70,21 @@ router.post('/create-order', authenticateToken, async (req, res) => {
       message: error.message || 'Failed to create payment order',
     });
   }
+}
+
+// Initialize Razorpay
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || '',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
 });
+
+// ============================================
+// CREATE PAYMENT ORDER
+// POST /api/payments/create-order
+// POST /api/payments/order
+// ============================================
+router.post('/create-order', authenticateToken, createOrderHandler);
+router.post('/order', authenticateToken, createOrderHandler);
 
 // ============================================
 // VERIFY PAYMENT
@@ -161,6 +162,69 @@ router.post('/verify', authenticateToken, async (req, res) => {
     res.status(500).json({
       error: 'Server error',
       message: error.message || 'Failed to verify payment',
+    });
+  }
+});
+
+// ============================================
+// GET USER PAYMENT TRANSACTIONS
+// GET /api/payments/transactions
+// ============================================
+router.get('/transactions', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limit = typeof limitRaw === 'string' ? parseInt(limitRaw, 10) : 20;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    const transactions = await db.getUserTransactions(userId, limit);
+
+    res.json({
+      success: true,
+      count: transactions.length,
+      transactions,
+    });
+  } catch (error: any) {
+    console.error('Get payment transactions error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to get payment transactions',
+    });
+  }
+});
+
+// ============================================
+// GET USER WALLET BALANCE
+// GET /api/payments/balance
+// ============================================
+router.get('/balance', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    const user = await db.getUserById(userId);
+
+    res.json({
+      success: true,
+      balance: user.coins,
+    });
+  } catch (error: any) {
+    console.error('Get payment balance error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to get payment balance',
     });
   }
 });

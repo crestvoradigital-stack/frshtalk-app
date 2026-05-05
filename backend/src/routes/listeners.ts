@@ -5,14 +5,57 @@ import { authenticateToken, optionalAuth } from '../middleware/auth.js';
 const router = Router();
 
 // ============================================
+// GET AVAILABLE LISTENERS
+// GET /api/listeners/available
+// ============================================
+router.get('/available', optionalAuth, async (req, res) => {
+  try {
+    const listeners = await db.getListeners();
+
+    const formatted = listeners.map((listener) => ({
+      id: listener.users.id,
+      username: listener.users.username,
+      avatar: listener.users.avatar_url,
+      voiceRate: listener.voice_rate,
+      videoRate: listener.video_rate,
+      tags: listener.tags || [],
+      rating: parseFloat(listener.rating),
+      reviewCount: listener.review_count,
+      location: listener.location,
+      languages: listener.languages || [],
+      isOnline: listener.users.is_online,
+      isVerified: listener.users.is_verified,
+      isOnCall: listener.is_on_call,
+      totalCalls: listener.total_calls,
+    }));
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      listeners: formatted,
+    });
+  } catch (error: any) {
+    console.error('Get available listeners error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to get available listeners',
+    });
+  }
+});
+
+// ============================================
 // GET ALL LISTENERS
 // GET /api/listeners
 // ============================================
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { location, tag, sort = 'rating' } = req.query;
+    const location = Array.isArray(req.query.location) ? req.query.location[0] : req.query.location;
+    const tag = Array.isArray(req.query.tag) ? req.query.tag[0] : req.query.tag;
+    const sort = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort || 'rating';
 
     const filters: any = {};
+    if (location) filters.location = location;
+    if (tag) filters.tag = tag;
     if (location) filters.location = location;
     if (tag) filters.tag = tag;
 
@@ -56,7 +99,7 @@ router.get('/', optionalAuth, async (req, res) => {
 // ============================================
 router.get('/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
     const listener = await db.getListenerProfile(id);
 

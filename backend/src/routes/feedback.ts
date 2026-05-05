@@ -115,8 +115,9 @@ router.get('/stats', authenticateToken, async (req, res) => {
 // ============================================
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user?.userId;
-    const { limit = 20 } = req.query;
+    const userId = (req as any).user?.userId;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limitString = typeof limitRaw === 'string' ? limitRaw : '20';
 
     if (!userId) {
       return res.status(401).json({
@@ -130,7 +131,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(parseInt(limit as string));
+      .limit(parseInt(limitString));
 
     if (error) {
       throw error;

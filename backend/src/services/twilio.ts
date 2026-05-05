@@ -135,6 +135,51 @@ export async function verifyOTP(
 }
 
 /**
+ * Send a plain SMS message using Twilio
+ */
+export async function sendSMS(
+  to: string,
+  body: string
+): Promise<{
+  success: boolean;
+  message: string;
+  sid?: string;
+}> {
+  try {
+    if (process.env.NODE_ENV === 'development' && !twilioClient) {
+      console.log(`[DEV MODE] SMS to ${to}: ${body}`);
+      return {
+        success: true,
+        message: 'SMS sent (development mode)',
+        sid: `dev-sms-${Date.now()}`,
+      };
+    }
+
+    if (!twilioClient) {
+      throw new Error('Twilio is not configured');
+    }
+
+    const message = await twilioClient.messages.create({
+      to,
+      from: process.env.TWILIO_PHONE_NUMBER!,
+      body,
+    });
+
+    return {
+      success: true,
+      message: 'SMS sent successfully',
+      sid: message.sid,
+    };
+  } catch (error: any) {
+    console.error('Twilio send SMS error:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to send SMS',
+    };
+  }
+}
+
+/**
  * Initiate a voice call using Twilio
  */
 export async function initiateVoiceCall(
@@ -230,10 +275,11 @@ export async function generateVoiceToken(
     const token = new AccessToken(
       accountSid!,
       process.env.TWILIO_API_KEY_SID!,
-      process.env.TWILIO_API_KEY_SECRET!
+      process.env.TWILIO_API_KEY_SECRET!,
+      {
+        identity,
+      }
     );
-
-    token.identity = identity;
 
     // Add voice grant
     const voiceGrant = new VoiceGrant({

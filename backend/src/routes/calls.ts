@@ -5,7 +5,102 @@ import { initiateVoiceCall, generateVoiceToken, endVoiceCall } from '../services
 
 const router = Router();
 
-const router = Router();
+async function endCallWorkflow(callId: string, userId: string) {
+  const { data: call, error: callError } = await db.supabaseAdmin
+    .from('calls')
+    .select('*')
+    .eq('id', callId)
+    .single();
+
+  if (callError || !call) {
+    throw {
+      status: 404,
+      payload: {
+        error: 'Not found',
+        message: 'Call not found',
+      },
+    };
+  }
+
+  if (call.customer_id !== userId && call.listener_id !== userId) {
+    throw {
+      status: 403,
+      payload: {
+        error: 'Forbidden',
+        message: 'You are not authorized to end this call',
+      },
+    };
+  }
+
+  const endTime = new Date();
+  const startTime = new Date(call.start_time);
+  const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+  const durationMinutes = Math.max(1, Math.ceil(durationSeconds / 60));
+
+  const listener = await db.getListenerProfile(call.listener_id);
+  const ratePerMinute = call.call_type === 'voice' ? listener.voice_rate : listener.video_rate;
+  const totalCost = durationMinutes * ratePerMinute;
+
+  const { data: customerData, error: customerError } = await db.supabaseAdmin
+    .from('users')
+    .select('coins')
+    .eq('id', call.customer_id)
+    .single();
+
+  if (customerError || !customerData) {
+    throw {
+      status: 500,
+      payload: {
+        error: 'Server error',
+        message: 'Customer not found',
+      },
+    };
+  }
+
+  await db.supabaseAdmin
+    .from('users')
+    .update({
+      coins: customerData.coins - totalCost,
+    })
+    .eq('id', call.customer_id);
+
+  await db.createTransaction({
+    user_id: call.customer_id,
+    transaction_type: 'deduct',
+    amount: totalCost,
+    coins: totalCost,
+    status: 'completed',
+    description: `${call.call_type} call with ${listener.users.username} (${durationMinutes} min)`,
+    metadata: {
+      callId: call.id,
+      duration: durationMinutes,
+      rate: ratePerMinute,
+    },
+  });
+
+  const updatedCall = await db.updateCall(callId, {
+    status: 'ended',
+    end_time: endTime.toISOString(),
+    duration_seconds: durationSeconds,
+    cost: totalCost,
+  });
+
+  await db.supabaseAdmin
+    .from('listener_profiles')
+    .update({
+      is_on_call: false,
+      total_calls: listener.total_calls + 1,
+      total_minutes: listener.total_minutes + durationMinutes,
+    })
+    .eq('user_id', call.listener_id);
+
+  return {
+    id: updatedCall.id,
+    duration: durationMinutes,
+    cost: totalCost,
+    endTime: updatedCall.end_time,
+  };
+}
 
 // ============================================
 // INITIATE CALL
@@ -104,11 +199,12 @@ router.post('/initiate', authenticateToken, async (req, res) => {
 // ============================================
 // END CALL
 // POST /api/calls/:callId/end
+// POST /api/calls/end
 // ============================================
 router.post('/:callId/end', authenticateToken, async (req, res) => {
   try {
-    const { callId } = req.params;
-    const userId = req.user?.userId;
+    const callId = Array.isArray(req.params.callId) ? req.params.callId[0] : req.params.callId;
+    const userId = (req as any).user?.userId;
 
     if (!userId) {
       return res.status(401).json({
@@ -117,92 +213,56 @@ router.post('/:callId/end', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get call details
-    const { data: call } = await db.supabaseAdmin
-      .from('calls')
-      .select('*')
-      .eq('id', callId)
-      .single();
-
-    if (!call) {
-      return res.status(404).json({
-        error: 'Not found',
-        message: 'Call not found',
-      });
-    }
-
-    // Verify user is part of the call
-    if (call.customer_id !== userId && call.listener_id !== userId) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'You are not authorized to end this call',
-      });
-    }
-
-    // Calculate duration and cost
-    const endTime = new Date();
-    const startTime = new Date(call.start_time);
-    const durationSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
-    const durationMinutes = Math.ceil(durationSeconds / 60);
-
-    // Get listener profile for rates
-    const listener = await db.getListenerProfile(call.listener_id);
-    const ratePerMinute = call.call_type === 'voice' ? listener.voice_rate : listener.video_rate;
-    const totalCost = durationMinutes * ratePerMinute;
-
-    // Deduct coins from customer
-    await db.supabaseAdmin
-      .from('users')
-      .update({
-        coins: db.supabaseAdmin.sql`coins - ${totalCost}`,
-      })
-      .eq('id', call.customer_id);
-
-    // Create deduction transaction
-    await db.createTransaction({
-      user_id: call.customer_id,
-      transaction_type: 'deduct',
-      amount: totalCost,
-      coins: totalCost,
-      status: 'completed',
-      description: `${call.call_type} call with ${listener.users.username} (${durationMinutes} min)`,
-      metadata: {
-        callId: call.id,
-        duration: durationMinutes,
-        rate: ratePerMinute,
-      },
-    });
-
-    // Update call record
-    const updatedCall = await db.updateCall(callId, {
-      status: 'ended',
-      end_time: endTime.toISOString(),
-      duration_seconds: durationSeconds,
-      cost: totalCost,
-    });
-
-    // Update listener status
-    await db.supabaseAdmin
-      .from('listener_profiles')
-      .update({
-        is_on_call: false,
-        total_calls: db.supabaseAdmin.sql`total_calls + 1`,
-        total_minutes: db.supabaseAdmin.sql`total_minutes + ${durationMinutes}`,
-      })
-      .eq('user_id', call.listener_id);
+    const result = await endCallWorkflow(callId, userId);
 
     res.json({
       success: true,
       message: 'Call ended',
-      call: {
-        id: updatedCall.id,
-        duration: durationMinutes,
-        cost: totalCost,
-        endTime: updatedCall.end_time,
-      },
+      call: result,
     });
   } catch (error: any) {
     console.error('End call error:', error);
+    if (error.status && error.payload) {
+      return res.status(error.status).json(error.payload);
+    }
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to end call',
+    });
+  }
+});
+
+router.post('/end', authenticateToken, async (req, res) => {
+  try {
+    const callId = req.body.callId;
+    const userId = (req as any).user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    if (!callId) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        message: 'Call ID is required',
+      });
+    }
+
+    const result = await endCallWorkflow(callId, userId);
+
+    res.json({
+      success: true,
+      message: 'Call ended',
+      call: result,
+    });
+  } catch (error: any) {
+    console.error('End call error:', error);
+    if (error.status && error.payload) {
+      return res.status(error.status).json(error.payload);
+    }
     res.status(500).json({
       error: 'Server error',
       message: error.message || 'Failed to end call',
@@ -216,8 +276,9 @@ router.post('/:callId/end', authenticateToken, async (req, res) => {
 // ============================================
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user?.userId;
-    const { limit = 20 } = req.query;
+    const userId = (req as any).user?.userId;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limitString = typeof limitRaw === 'string' ? limitRaw : '20';
 
     if (!userId) {
       return res.status(401).json({
@@ -226,7 +287,7 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    const calls = await db.getUserCalls(userId, parseInt(limit as string));
+    const calls = await db.getUserCalls(userId, parseInt(limitString));
 
     res.json({
       success: true,
@@ -252,13 +313,52 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+router.get('/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limitString = typeof limitRaw === 'string' ? limitRaw : '20';
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated',
+      });
+    }
+
+    const calls = await db.getUserCalls(userId, parseInt(limitString));
+
+    res.json({
+      success: true,
+      count: calls.length,
+      calls: calls.map((call) => ({
+        id: call.id,
+        type: call.call_type,
+        status: call.status,
+        duration: Math.ceil(call.duration_seconds / 60),
+        cost: call.cost,
+        rating: call.rating,
+        startTime: call.start_time,
+        endTime: call.end_time,
+        otherUser: call.customer_id === userId ? call.listener : call.customer,
+      })),
+    });
+  } catch (error: any) {
+    console.error('Get call history error:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: error.message || 'Failed to get call history',
+    });
+  }
+});
+
 // ============================================
 // RATE CALL
 // POST /api/calls/:callId/rate
 // ============================================
 router.post('/:callId/rate', authenticateToken, async (req, res) => {
   try {
-    const { callId } = req.params;
+    const callId = Array.isArray(req.params.callId) ? req.params.callId[0] : req.params.callId;
     const { rating, feedback } = req.body;
     const userId = req.user?.userId;
 
@@ -393,7 +493,7 @@ router.post('/token', authenticateToken, async (req, res) => {
 // GET /api/calls/twiml/:callType
 // ============================================
 router.get('/twiml/:callType', (req, res) => {
-  const { callType } = req.params;
+  const callType = Array.isArray(req.params.callType) ? req.params.callType[0] : req.params.callType;
 
   // Set content type to XML
   res.set('Content-Type', 'text/xml');

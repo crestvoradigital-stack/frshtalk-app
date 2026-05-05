@@ -22,10 +22,11 @@ router.get('/balance', authenticateToken, async (req, res) => {
 // GET transactions
 router.get('/transactions', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user?.userId;
-    const { limit = 50 } = req.query;
+    const userId = (req as any).user?.userId;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limitString = typeof limitRaw === 'string' ? limitRaw : '50';
 
-    const transactions = await db.getUserTransactions(userId!, parseInt(limit as string));
+    const transactions = await db.getUserTransactions(userId!, parseInt(limitString));
 
     res.json({
       success: true,

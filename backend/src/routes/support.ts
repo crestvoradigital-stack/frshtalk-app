@@ -86,7 +86,9 @@ router.post('/tickets', authenticateToken, async (req, res) => {
 router.get('/tickets', authenticateToken, async (req, res) => {
   try {
     const userId = req.user?.userId;
-    const { status, limit = 20 } = req.query;
+    const status = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
+    const limitRaw = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const limit = typeof limitRaw === 'string' ? limitRaw : '20';
 
     if (!userId) {
       return res.status(401).json({
@@ -103,7 +105,7 @@ router.get('/tickets', authenticateToken, async (req, res) => {
       `)
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
-      .limit(parseInt(limit as string));
+      .limit(parseInt(limit));
 
     if (status) {
       query = query.eq('status', status);
@@ -117,7 +119,7 @@ router.get('/tickets', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      tickets: tickets.map(ticket => ({
+      tickets: tickets.map((ticket: any) => ({
         id: ticket.id,
         subject: ticket.subject,
         category: ticket.category,
@@ -125,7 +127,7 @@ router.get('/tickets', authenticateToken, async (req, res) => {
         priority: ticket.priority,
         createdAt: ticket.created_at,
         updatedAt: ticket.updated_at,
-        messages: ticket.messages?.map(msg => ({
+        messages: ticket.messages?.map((msg: any) => ({
           id: msg.id,
           message: msg.message,
           isStaff: msg.is_staff,
@@ -148,7 +150,7 @@ router.get('/tickets', authenticateToken, async (req, res) => {
 // ============================================
 router.post('/tickets/:ticketId/messages', authenticateToken, async (req, res) => {
   try {
-    const { ticketId } = req.params;
+    const ticketId = Array.isArray(req.params.ticketId) ? req.params.ticketId[0] : req.params.ticketId;
     const { message } = req.body;
     const userId = req.user?.userId;
 

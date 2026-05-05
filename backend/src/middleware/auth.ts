@@ -13,7 +13,7 @@ export interface AuthRequest extends Request {
  * Middleware to authenticate JWT token
  */
 export function authenticateToken(
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
@@ -32,9 +32,15 @@ export function authenticateToken(
       userId: string;
       phoneNumber: string;
       role: string;
+      iat?: number;
+      exp?: number;
     };
 
-    req.user = decoded;
+    (req as AuthRequest).user = {
+      userId: decoded.userId,
+      phoneNumber: decoded.phoneNumber,
+      role: decoded.role,
+    };
     next();
   } catch (error) {
     return res.status(403).json({
@@ -48,11 +54,11 @@ export function authenticateToken(
  * Middleware to check if user is a listener
  */
 export function isListener(
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
-  if (req.user?.role !== 'listener') {
+  if ((req as AuthRequest).user?.role !== 'listener') {
     return res.status(403).json({
       error: 'Forbidden',
       message: 'This action requires listener role',
@@ -65,11 +71,11 @@ export function isListener(
  * Middleware to check if user is an admin
  */
 export function isAdmin(
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
-  if (req.user?.role !== 'admin') {
+  if ((req as AuthRequest).user?.role !== 'admin') {
     return res.status(403).json({
       error: 'Forbidden',
       message: 'This action requires admin role',
@@ -82,7 +88,7 @@ export function isAdmin(
  * Optional authentication - doesn't fail if no token
  */
 export function optionalAuth(
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
